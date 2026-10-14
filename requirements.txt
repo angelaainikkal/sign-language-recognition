@@ -1,6 +1,6 @@
 
 numpy
-opencv-python
+opencv-python-headless
 scikit-image
 scikit-learn
 joblib
