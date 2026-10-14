@@ -121,3 +121,9 @@ The current implementation focuses on recognizing static alphabet gestures from 
 This project is developed as part of the AIML Lab mini-project.
 
 **Repository:** [Sign Language Recognition](https://github.com/angelaainikkal/sign-language-recognition)
+
+## Live Demo
+
+Try the deployed application here:
+
+**[Launch Signify – Sign Language Alphabet Recognition](https://signify-alphabet-recognition.streamlit.app/)
