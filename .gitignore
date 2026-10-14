@@ -218,3 +218,7 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Large dataset and trained model
+data/images.npy
+models/knn_hog_alphabet.joblib
