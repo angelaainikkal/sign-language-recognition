@@ -25,6 +25,7 @@ Extra options:
     --test-size 0.2 --seed 42
     --metric euclidean --weights uniform
     --model knn_model.pkl   also evaluate Member 2's saved model on the test split
+    --block-split           stricter test: train on early frames, test on later frames
     --mlflow                log runs to MLflow (pip install mlflow)
 
 Install:  pip install numpy pandas scikit-learn matplotlib seaborn joblib
@@ -63,6 +64,13 @@ def parse_args():
     p.add_argument("--metric", default="euclidean")
     p.add_argument("--weights", default="uniform", choices=["uniform", "distance"])
     p.add_argument("--scale", action="store_true")
+    p.add_argument("--block-split", action="store_true",
+                   help="per class: train on earliest frames, test on latest "
+                        "frames (avoids near-duplicate leakage). Needs data in "
+                        "capture order (use the latest make_features.py)")
+    p.add_argument("--gap", type=float, default=0.05,
+                   help="fraction of each class dropped between train and test "
+                        "in --block-split mode")
     p.add_argument("--out", default="results")
     p.add_argument("--mlflow", action="store_true")
     return p.parse_args()
@@ -122,10 +130,25 @@ def main():
     print(f"Data: {X.shape[0]} samples, {X.shape[1]} features, "
           f"{len(np.unique(y))} classes")
 
-    X_tr, X_te, y_tr, y_te, idx_tr, idx_te = train_test_split(
-        X, y, idx, test_size=args.test_size, random_state=args.seed,
-        stratify=y)
     labels = sorted(np.unique(y).tolist())
+    if args.block_split:
+        tr_parts, te_parts = [], []
+        for c in labels:
+            pos = np.where(y == c)[0]  # file order = capture order
+            n = len(pos)
+            n_te = int(round(n * args.test_size))
+            n_gap = int(round(n * args.gap))
+            tr_parts.append(pos[:n - n_te - n_gap])
+            te_parts.append(pos[n - n_te:])
+        idx_tr, idx_te = np.concatenate(tr_parts), np.concatenate(te_parts)
+        X_tr, y_tr, X_te, y_te = X[idx_tr], y[idx_tr], X[idx_te], y[idx_te]
+        print(f"Split: BLOCK (train on earliest frames, gap {args.gap:.0%}, "
+              f"test on latest {args.test_size:.0%})")
+    else:
+        X_tr, X_te, y_tr, y_te, idx_tr, idx_te = train_test_split(
+            X, y, idx, test_size=args.test_size, random_state=args.seed,
+            stratify=y)
+        print("Split: RANDOM stratified")
 
     if args.mlflow:
         import mlflow
@@ -148,12 +171,14 @@ def main():
 
         params = {"k": k, "metric": args.metric, "weights": args.weights,
                   "scaling": args.scale, "test_size": args.test_size,
-                  "seed": args.seed}
+                  "seed": args.seed,
+                  "split": "block" if args.block_split else "random"}
         metrics = {"accuracy": acc, "precision_macro": prec,
                    "recall_macro": rec, "f1_macro": f1}
         rows.append({"Experiment": n, "K": k,
                      "Parameters": (f"metric={args.metric}, "
-                                    f"weights={args.weights}, scale={args.scale}"),
+                                    f"weights={args.weights}, scale={args.scale}, "
+                                    f"split={'block' if args.block_split else 'random'}"),
                      "Accuracy": round(acc, 4), "Precision": round(prec, 4),
                      "Recall": round(rec, 4), "F1": round(f1, 4),
                      "Remarks": ""})
