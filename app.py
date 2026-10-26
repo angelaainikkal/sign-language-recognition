@@ -374,8 +374,46 @@ with right:
         </div>
         """, unsafe_allow_html=True)
 
-# Person 4: add the st.camera_input webcam section here and pass
-# photo.getvalue() to predict(), the same function used above.
+
+# ---------------- WEBCAM CAPTURE (PERSON 4) ----------------
+st.markdown("---")
+st.markdown("## Try with your webcam")
+st.caption("Capture a clear, single-hand sign using your camera.")
+
+photo = st.camera_input("Capture a hand sign")
+
+if photo is not None:
+    camera_bytes = photo.getvalue()
+
+    if not is_valid_image(camera_bytes):
+        st.error("Please capture a valid PNG or JPG image.")
+    else:
+        st.image(
+            camera_bytes,
+            caption="Captured hand-sign image",
+            use_container_width=True,
+        )
+
+        if st.button("Predict captured sign", type="primary"):
+            try:
+                with st.spinner("Analysing the captured image..."):
+                    camera_result = predict(camera_bytes)
+
+                if camera_result["status"] == "ok":
+                    st.success(
+                        f"Predicted alphabet: {camera_result['label']}"
+                    )
+                    st.write(
+                        f"Confidence: {camera_result['confidence']:.0%}"
+                    )
+                else:
+                    st.warning(camera_result["message"])
+
+            except FileNotFoundError as error:
+                st.error(f"Model file is missing: {error}")
+            except Exception as error:
+                st.error(f"Unable to predict this image: {error}")
+
 
 
 # ---------------- HOW IT WORKS ----------------
