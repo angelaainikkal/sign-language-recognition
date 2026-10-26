@@ -3,10 +3,13 @@ import cv2, numpy as np, joblib
 from sklearn.cluster import MiniBatchKMeans
 from sift_features import descriptors, histogram, N_WORDS
 
-DATASET_DIR = sys.argv[1]          # folder containing A/, B/, ... Z/
+DATASET_DIR = sys.argv[1]          # folder containing images.npy and labels.npy
 PER_LETTER = 100
 LETTERS = [chr(c) for c in range(65, 91)]
 EXTS = ("png", "jpg", "jpeg")
+
+images = np.load(os.path.join(DATASET_DIR, "images.npy"), mmap_mode="r")
+labels = np.load(os.path.join(DATASET_DIR, "labels.npy"))
 
 
 def files_in(folder):
@@ -17,17 +20,23 @@ def files_in(folder):
     return sorted(set(out))
 
 
+def load(p):
+    if p.startswith("dataset:"):
+        return np.array(images[int(p.split(":")[1])])
+    return cv2.imread(p)
+
+
 items = []  # (path, label, source, frame)
 
-# 1) dataset: 100 evenly spaced frames per letter, keeping the frame index
+# 1) dataset: 100 evenly spaced frames per letter, keeping the frame index (0-999)
 for L in LETTERS:
-    fs = files_in(os.path.join(DATASET_DIR, L))
-    if not fs:
-        print("WARNING: no files for", L)
+    idxs = np.where(labels == L)[0]
+    if len(idxs) == 0:
+        print("WARNING: no images for", L)
         continue
-    idx = np.linspace(0, len(fs) - 1, min(PER_LETTER, len(fs))).astype(int)
-    for i in idx:
-        items.append((fs[i], L, "dataset", int(i)))
+    pick = np.linspace(0, len(idxs) - 1, min(PER_LETTER, len(idxs))).astype(int)
+    for i in pick:
+        items.append((f"dataset:{idxs[i]}", L, "dataset", int(i)))
 
 # 2) extra sign photos and drawings
 for L in LETTERS:
@@ -43,7 +52,7 @@ print("images:", len(items))
 # pass 1: descriptors
 descs, kept = [], []
 for n, (p, lab, src, fr) in enumerate(items):
-    img = cv2.imread(p)
+    img = load(p)
     if img is None:
         print("skip unreadable:", p)
         continue
