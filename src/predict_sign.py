@@ -1,113 +1,90 @@
-
 from pathlib import Path
 import sys
 
 import cv2
 import joblib
 import numpy as np
-from skimage.feature import hog
+
+# Works both as "from src.predict_sign import ..." and "python src/predict_sign.py"
+try:
+    from src.sift_features import image_to_features
+except ModuleNotFoundError:
+    from sift_features import image_to_features
 
 
-# Project paths
 ROOT = Path(__file__).resolve().parent.parent
-MODEL_PATH = ROOT / "models" / "knn_hog_alphabet.joblib"
-DATA_PATH = ROOT / "data"
+MODEL_PATH = ROOT / "models" / "sift_svm.joblib"
+
+CONF_THRESHOLD = 0.40
+MESSAGE = "This doesn't look like a hand sign"
+
+_bundle = None
 
 
-def extract_hog_features(image):
-    """Extract HOG features from a grayscale image."""
-    return hog(
-        image,
-        orientations=9,
-        pixels_per_cell=(8, 8),
-        cells_per_block=(2, 2),
-        block_norm="L2-Hys",
-        visualize=False,
-        feature_vector=True,
-    )
+def _load():
+    """Load the model once. Keys: kmeans, svm, classes."""
+    global _bundle
+    if _bundle is None:
+        if not MODEL_PATH.exists():
+            raise FileNotFoundError(
+                f"Model not found: {MODEL_PATH}\n"
+                "Pull the latest sift-svm branch (Person 2 pushes it)."
+            )
+        _bundle = joblib.load(MODEL_PATH)
+    return _bundle
 
 
-def load_model():
-    """Load the trained KNN model."""
-    if not MODEL_PATH.exists():
-        raise FileNotFoundError(
-            f"Model not found: {MODEL_PATH}\n"
-            "Please run py src/train_knn.py first."
-        )
+def _reject(reason, conf=0.0):
+    return {
+        "status": "rejected",
+        "reason": reason,
+        "message": MESSAGE,
+        "confidence": float(conf),
+    }
 
-    saved = joblib.load(MODEL_PATH)
 
-    # The training script saves the model inside a dictionary.
-    if isinstance(saved, dict):
-        return saved["model"]
+def predict(image_bytes: bytes) -> dict:
+    """Used by the upload and the webcam. Takes raw image bytes.
 
-    return saved
+    Returns:
+      {"status": "ok", "label": "B", "confidence": 0.82}
+      {"status": "rejected", "reason": ..., "message": ..., "confidence": ...}
+    """
+    arr = np.frombuffer(image_bytes, np.uint8)
+    img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+    if img is None:
+        return _reject("invalid_file")
+
+    b = _load()
+    hist = image_to_features(img, b["kmeans"]).reshape(1, -1)
+    svm, classes = b["svm"], list(b["classes"])
+
+    probs = svm.predict_proba(hist)[0]
+    i = int(np.argmax(probs))
+    cls = svm.classes_[i]
+    # classes_ may hold integer indexes or the label strings themselves
+    label = classes[int(cls)] if isinstance(cls, (int, np.integer)) else str(cls)
+    conf = float(probs[i])
+
+    if label == "not_a_sign":
+        return _reject("not_a_sign", conf)
+    if conf < CONF_THRESHOLD:
+        return _reject("low_confidence", conf)
+    return {"status": "ok", "label": label, "confidence": conf}
 
 
 def predict_sign(image_path):
-    """Predict the alphabet letter from an image."""
-    model = load_model()
-
-    image = cv2.imread(str(image_path), cv2.IMREAD_GRAYSCALE)
-
-    if image is None:
-        raise ValueError(f"Could not read image: {image_path}")
-
-    # Match the image size used during training.
-    image = cv2.resize(image, (64, 64))
-
-    features = extract_hog_features(image).reshape(1, -1)
-    prediction = model.predict(features)[0]
-
-    return prediction
-
-
-def save_sample_image():
-    """Save one alphabet A image from the preprocessed dataset."""
-    images_path = DATA_PATH / "images.npy"
-    labels_path = DATA_PATH / "labels.npy"
-
-    images = np.load(images_path)
-    labels = np.load(labels_path)
-
-    # Find the first image labelled A.
-    indices = np.where(labels == "A")[0]
-
-    if len(indices) == 0:
-        raise ValueError("No image labelled A was found in the dataset.")
-
-    index = indices[0]
-    output_path = DATA_PATH / "test_sign_A.png"
-
-    success = cv2.imwrite(str(output_path), images[index])
-
-    if not success:
-        raise OSError("Could not save the sample image.")
-
-    print(f"Sample image saved: {output_path}")
-    return output_path
+    """Old interface: returns the letter, or None if the image is rejected."""
+    data = Path(image_path).read_bytes()
+    result = predict(data)
+    return result["label"] if result["status"] == "ok" else None
 
 
 if __name__ == "__main__":
-    try:
-        if len(sys.argv) >= 2:
-            # Predict an image supplied in the terminal.
-            image_path = Path(sys.argv[1])
-
-            if not image_path.is_absolute():
-                image_path = Path.cwd() / image_path
-
-            letter = predict_sign(image_path)
-            print(f"\nPredicted sign: {letter}")
-
-        else:
-            # No image supplied: create a sample and predict it.
-            print("No image provided. Creating a sample image...")
-            sample_path = save_sample_image()
-
-            letter = predict_sign(sample_path)
-            print(f"\nExpected sign: A")
-            print(f"Predicted sign: {letter}")
-
-    except (ValueError, FileNotFoundError, KeyError, OSError) as error:
-        print(f"\nError: {error}")
+    if len(sys.argv) < 2:
+        print("Usage: py src/predict_sign.py <image_path>")
+        sys.exit(1)
+    path = Path(sys.argv[1])
+    if not path.is_absolute():
+        path = Path.cwd() / path
+    print(predict(path.read_bytes()))
