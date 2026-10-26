@@ -308,7 +308,7 @@ with left:
     predict_clicked = st.button(
         "✨  Predict alphabet",
         type="primary",
-        use_container_width=True,
+        width="stretch",
         disabled=not file_ok,
     )
 
@@ -327,7 +327,7 @@ with right:
         st.image(
             image_bytes,
             caption="Selected hand-sign image",
-            use_container_width=True,
+            width="stretch",
         )
 
     if predict_clicked and file_ok:
@@ -347,8 +347,14 @@ with right:
                 """, unsafe_allow_html=True)
                 st.success("Prediction completed successfully.")
             else:
-                # not_a_sign, low_confidence or invalid_file
+                # not_a_sign, low_confidence, no_features or invalid_file
                 st.warning(result["message"])
+                if result.get("best_guess"):
+                    st.caption(
+                        f"Closest match: {result['best_guess']} "
+                        f"({result['confidence']:.0%}), "
+                        "but the model is not sure enough."
+                    )
 
         except FileNotFoundError as error:
             st.error(f"Model file is missing: {error}")
