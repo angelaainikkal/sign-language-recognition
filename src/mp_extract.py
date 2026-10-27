@@ -54,7 +54,7 @@ def main():
             model_asset_path=str(MODEL_FILE)
         ),
         running_mode=vision.RunningMode.IMAGE,
-        num_hands=1,
+        num_hands=2,
         min_hand_detection_confidence=0.3,
     )
 
