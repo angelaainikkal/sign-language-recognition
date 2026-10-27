@@ -3,8 +3,8 @@ import io
 import streamlit as st
 from PIL import Image
 
-from src.predict_sign import predict
-
+from src.predict_sign import predict as predict_sift
+from src.predict_mediapipe import predict as predict_mediapipe
 
 def is_valid_image(data: bytes) -> bool:
     """Accept only real PNG or JPEG files (the extension can lie)."""
@@ -224,21 +224,44 @@ with st.sidebar:
     st.markdown("### About the project")
     st.write(
         "An alphabet recognition prototype that uses "
-        "computer vision (SIFT features) and an SVM classifier."
+        "computer vision and machine learning to recognize "
+        "sign language alphabets."
     )
 
     st.markdown("### How it works")
     st.markdown("""
     **01** · Upload a hand-sign image
 
-    **02** · Extract SIFT features
+    **02** · Extract features using the selected model
 
-    **03** · Predict with SVM
+    **03** · Predict with the trained classifier
 
     **04** · View the predicted letter
     """)
 
     st.divider()
+
+    st.markdown("### Recognition model")
+
+    model_choice = st.radio(
+        "Choose a model",
+        ["MediaPipe + SVM", "SIFT + SVM"],
+        index=0,
+    )
+
+    if model_choice == "MediaPipe + SVM":
+        st.caption(
+            "Uses MediaPipe hand landmarks "
+            "and an SVM classifier."
+        )
+    else:
+        st.caption(
+            "Uses SIFT features, Bag of Visual Words, "
+            "and an SVM classifier."
+        )
+
+    st.divider()
+
     st.markdown("### Tips for better inputs")
     st.markdown("""
     - Use a clear, well-lit image.
@@ -248,8 +271,10 @@ with st.sidebar:
     """)
 
     st.divider()
-    st.caption("Model: SIFT + Bag of Words + SVM")
+
+    st.caption(f"Model: {model_choice}")
     st.caption("Interface: Streamlit")
+
 
 
 # ---------------- HERO SECTION ----------------
@@ -333,7 +358,11 @@ with right:
     if predict_clicked and file_ok:
         try:
             with st.spinner("Analysing the hand sign..."):
-                result = predict(image_bytes)
+                if model_choice == "MediaPipe + SVM":
+                    result = predict_mediapipe(image_bytes)
+                else:
+                    result = predict_sift(image_bytes)
+
 
             if result["status"] == "ok":
                 st.markdown(f"""
@@ -341,14 +370,28 @@ with right:
                     <div class="result-caption">PREDICTED ALPHABET</div>
                     <div class="result-letter">{result['label']}</div>
                     <div class="result-caption">
-                        Confidence: {result['confidence']:.0%}
+                        Confidence: {
+                            f"{result['confidence']:.0%}"
+                            if result.get("confidence") is not None
+                            else "Not available"
+                        }
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
+
+                if model_choice == "MediaPipe + SVM":
+                    st.image(
+                        result["annotated_image"],
+                        caption="Detected hand landmarks",
+                        width="stretch",
+                    )
+
                 st.success("Prediction completed successfully.")
+
             else:
-                # not_a_sign, low_confidence, no_features or invalid_file
+                # Handles unsuccessful predictions
                 st.warning(result["message"])
+
                 if result.get("best_guess"):
                     st.caption(
                         f"Closest match: {result['best_guess']} "
@@ -375,7 +418,7 @@ with right:
         """, unsafe_allow_html=True)
 
 
-# ---------------- WEBCAM CAPTURE (PERSON 4) ----------------
+# ---------------- WEBCAM CAPTURE ----------------
 st.markdown("---")
 st.markdown("## Try with your webcam")
 st.caption("Capture a clear, single-hand sign using your camera.")
@@ -391,21 +434,32 @@ if photo is not None:
         st.image(
             camera_bytes,
             caption="Captured hand-sign image",
-            use_container_width=True,
+            width="stretch",
         )
 
         if st.button("Predict captured sign", type="primary"):
             try:
                 with st.spinner("Analysing the captured image..."):
-                    camera_result = predict(camera_bytes)
+                    if model_choice == "MediaPipe + SVM":
+                        camera_result = predict_mediapipe(camera_bytes)
+                    else:
+                        camera_result = predict_sift(camera_bytes)
 
                 if camera_result["status"] == "ok":
                     st.success(
                         f"Predicted alphabet: {camera_result['label']}"
                     )
-                    st.write(
-                        f"Confidence: {camera_result['confidence']:.0%}"
-                    )
+
+                    confidence = camera_result.get("confidence")
+                    if confidence is not None:
+                        st.write(f"Confidence: {confidence:.0%}")
+
+                    if model_choice == "MediaPipe + SVM":
+                        st.image(
+                            camera_result["annotated_image"],
+                            caption="Detected hand landmarks",
+                            width="stretch",
+                        )
                 else:
                     st.warning(camera_result["message"])
 
@@ -413,7 +467,6 @@ if photo is not None:
                 st.error(f"Model file is missing: {error}")
             except Exception as error:
                 st.error(f"Unable to predict this image: {error}")
-
 
 
 # ---------------- HOW IT WORKS ----------------
@@ -427,29 +480,39 @@ with c1:
     st.markdown("""
     <div class="tip">
         <b>📷 1. Image input</b><br><br>
-        The app checks your upload is a real PNG or JPG image.
+        Upload an image or capture a hand sign using your webcam.
     </div>
     """, unsafe_allow_html=True)
 
 with c2:
-    st.markdown("""
-    <div class="tip">
-        <b>🧩 2. Feature extraction</b><br><br>
-        SIFT keypoints are grouped into visual words and counted in a histogram.
-    </div>
-    """, unsafe_allow_html=True)
+    if model_choice == "MediaPipe + SVM":
+        feature_text = (
+            "MediaPipe detects 21 hand landmarks and "
+            "converts their coordinates into features."
+        )
+    else:
+        feature_text = (
+            "SIFT features are grouped into visual words "
+            "and counted in a histogram."
+        )
+
+    st.markdown(
+        f'<div class="tip"><b>🧩 2. Feature extraction</b><br><br>'
+        f'{feature_text}</div>',
+        unsafe_allow_html=True,
+    )
 
 with c3:
     st.markdown("""
     <div class="tip">
         <b>🤖 3. SVM prediction</b><br><br>
-        The classifier predicts a letter, or rejects images that are not hand signs.
+        The selected classifier predicts the most likely alphabet.
     </div>
     """, unsafe_allow_html=True)
 
 st.markdown("""
 <div class="footer">
     SIGNIFY · Sign Language Alphabet Recognition<br>
-    Built with Python, OpenCV, SIFT, scikit-learn and Streamlit
+    Built with Python, OpenCV, MediaPipe, scikit-learn and Streamlit
 </div>
 """, unsafe_allow_html=True)
