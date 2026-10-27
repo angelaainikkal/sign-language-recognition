@@ -11,8 +11,8 @@ from sklearn.metrics import accuracy_score, f1_score, classification_report
 def load(path):
     d = np.load(path, allow_pickle=True)
     print("Keys in file:", list(d.keys()))
-    if "L" in d:
-        X, y = d["L"], d["y"]
+    if "X" in d and "L" in d:
+      X, y = d["X"], d["L"]
     else:
         ykey = next(k for k in ("y", "labels", "label") if k in d)
         xkey = next(k for k in d.keys() if k != ykey)
@@ -52,4 +52,3 @@ def main(path):
 
 if __name__ == "__main__":
     main(sys.argv[1] if len(sys.argv) > 1 else "data/landmarks.npz")
-    
